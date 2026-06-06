@@ -134,4 +134,134 @@
             transactions.forEach((tx) => {
                 const buyAmt = Number(tx.buy);
                 const isSold = tx.sell !== "" && tx.sell !== null;
-                const sellAmt = isSold ? Number(tx.sell) :
+                const sellAmt = isSold ? Number(tx.sell) : 0;
+                
+                // 計算邏輯：餘額 = 先前餘額 - 買進成本 + 賣出收入
+                currentBalance = currentBalance - buyAmt + sellAmt;
+
+                // 價差計算 (台灣習慣：紅漲綠跌)
+                let profitDisplay = '<span class="text-gray-400">-</span>';
+                if (isSold) {
+                    const profit = sellAmt - buyAmt;
+                    if (profit > 0) {
+                        profitDisplay = `<span class="text-red-500 font-bold">+${formatMoney(profit)}</span>`;
+                    } else if (profit < 0) {
+                        profitDisplay = `<span class="text-green-500 font-bold">${formatMoney(profit)}</span>`;
+                    } else {
+                        profitDisplay = `<span class="text-gray-700 font-bold">${formatMoney(0)}</span>`;
+                    }
+                }
+
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-gray-50 transition";
+                tr.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${tx.date}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${tx.name}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">${formatMoney(buyAmt)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">${isSold ? formatMoney(sellAmt) : '<span class="text-gray-400 text-xs">持有中</span>'}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right">${profitDisplay}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold ${currentBalance < 0 ? 'text-red-600' : 'text-blue-600'}">${formatMoney(currentBalance)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-center">
+                        <button onclick="editTx('${tx.id}')" class="text-indigo-600 hover:text-indigo-900 mr-3">編輯</button>
+                        <button onclick="deleteTx('${tx.id}')" class="text-red-600 hover:text-red-900">刪除</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            // 更新總餘額顯示
+            currentBalanceEl.innerText = formatMoney(currentBalance);
+            if(currentBalance < 0) {
+                currentBalanceEl.classList.replace('text-blue-600', 'text-red-600');
+            } else {
+                currentBalanceEl.classList.replace('text-red-600', 'text-blue-600');
+            }
+        }
+
+        // 儲存資料到 LocalStorage
+        function saveData() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
+            renderTable();
+        }
+
+        // 處理表單提交 (新增/修改)
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const id = document.getElementById('tx-id').value;
+            const date = document.getElementById('tx-date').value;
+            const name = document.getElementById('tx-name').value;
+            const buy = document.getElementById('tx-buy').value;
+            const sell = document.getElementById('tx-sell').value;
+
+            if (id) {
+                // 更新現有紀錄
+                const index = transactions.findIndex(t => t.id === id);
+                if (index !== -1) {
+                    transactions[index] = { id, date, name, buy, sell };
+                }
+            } else {
+                // 新增紀錄
+                const newTx = {
+                    id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(), // 產生唯一ID
+                    date,
+                    name,
+                    buy,
+                    sell
+                };
+                transactions.push(newTx);
+            }
+
+            saveData();
+            resetForm();
+        });
+
+        // 刪除紀錄
+        window.deleteTx = function(id) {
+            if (confirm('確定要刪除這筆交易紀錄嗎？這將會重新計算餘額。')) {
+                transactions = transactions.filter(t => t.id !== id);
+                saveData();
+            }
+        }
+
+        // 編輯紀錄 (載入資料至表單)
+        window.editTx = function(id) {
+            const tx = transactions.find(t => t.id === id);
+            if (!tx) return;
+
+            document.getElementById('tx-id').value = tx.id;
+            document.getElementById('tx-date').value = tx.date;
+            document.getElementById('tx-name').value = tx.name;
+            document.getElementById('tx-buy').value = tx.buy;
+            document.getElementById('tx-sell').value = tx.sell;
+
+            formTitle.innerText = "編輯交易紀錄";
+            submitBtn.innerText = "儲存修改";
+            submitBtn.classList.replace('bg-blue-600', 'bg-green-600');
+            submitBtn.classList.replace('hover:bg-blue-700', 'hover:bg-green-700');
+            cancelBtn.classList.remove('hidden');
+            cancelBtn.classList.add('block');
+            
+            // 滾動到表單位置
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // 重置表單狀態
+        window.resetForm = function() {
+            form.reset();
+            document.getElementById('tx-id').value = "";
+            document.getElementById('tx-date').valueAsDate = new Date();
+            
+            formTitle.innerText = "新增交易紀錄";
+            submitBtn.innerText = "新增紀錄";
+            submitBtn.classList.replace('bg-green-600', 'bg-blue-600');
+            submitBtn.classList.replace('hover:bg-green-700', 'hover:bg-blue-700');
+            cancelBtn.classList.add('hidden');
+            cancelBtn.classList.remove('block');
+        }
+
+        // 執行初始化
+        init();
+    </script>
+</body>
+</html>
