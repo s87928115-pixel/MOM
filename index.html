@@ -80,8 +80,19 @@
                         </tbody>
                 </table>
             </div>
-            <div id="empty-state" class="hidden text-center py-10 text-gray-500">
+            
+            <div id="empty-state" class="hidden text-center py-10 text-gray-500 border-b border-gray-200">
                 目前還沒有任何交易紀錄，請從上方表單新增。
+            </div>
+
+            <div id="pagination-controls" class="bg-gray-50 px-6 py-3 flex items-center justify-between border-t border-gray-200 hidden">
+                <div class="text-sm text-gray-500" id="page-info">
+                    顯示第 1 頁，共 1 頁
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="changePage(-1)" id="btn-prev" class="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">上一頁</button>
+                    <button onclick="changePage(1)" id="btn-next" class="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">下一頁</button>
+                </div>
             </div>
         </div>
     </div>
@@ -91,11 +102,19 @@
         const INITIAL_CAPITAL = 300000;
         const STORAGE_KEY = 'stock_transactions_data';
         let transactions = [];
+        
+        // 翻頁設定
+        let currentPage = 1;
+        const itemsPerPage = 10; // 每頁顯示 10 筆
 
         // DOM 元素
         const form = document.getElementById('transaction-form');
         const tbody = document.getElementById('table-body');
         const emptyState = document.getElementById('empty-state');
+        const paginationControls = document.getElementById('pagination-controls');
+        const pageInfo = document.getElementById('page-info');
+        const btnPrev = document.getElementById('btn-prev');
+        const btnNext = document.getElementById('btn-next');
         const currentBalanceEl = document.getElementById('current-balance');
         const submitBtn = document.getElementById('submit-btn');
         const cancelBtn = document.getElementById('cancel-btn');
@@ -107,7 +126,6 @@
             if (savedData) {
                 transactions = JSON.parse(savedData);
             }
-            // 設定今日日期為預設值
             document.getElementById('tx-date').valueAsDate = new Date();
             renderTable();
         }
@@ -120,26 +138,20 @@
         // 渲染表格與計算餘額
         function renderTable() {
             tbody.innerHTML = '';
-            let currentBalance = INITIAL_CAPITAL;
+            let runningBalance = INITIAL_CAPITAL;
 
-            // 依照日期排序 (舊到新)
+            // 1. 依照日期排序 (舊到新)，確保餘額計算正確
             transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-            if (transactions.length === 0) {
-                emptyState.classList.remove('hidden');
-            } else {
-                emptyState.classList.add('hidden');
-            }
-
-            transactions.forEach((tx) => {
+            // 2. 預先計算每一筆的當下餘額與價差
+            const processedTxs = transactions.map((tx) => {
                 const buyAmt = Number(tx.buy);
                 const isSold = tx.sell !== "" && tx.sell !== null;
                 const sellAmt = isSold ? Number(tx.sell) : 0;
                 
                 // 計算邏輯：餘額 = 先前餘額 - 買進成本 + 賣出收入
-                currentBalance = currentBalance - buyAmt + sellAmt;
+                runningBalance = runningBalance - buyAmt + sellAmt;
 
-                // 價差計算 (台灣習慣：紅漲綠跌)
                 let profitDisplay = '<span class="text-gray-400">-</span>';
                 if (isSold) {
                     const profit = sellAmt - buyAmt;
@@ -152,15 +164,56 @@
                     }
                 }
 
+                return {
+                    ...tx,
+                    buyAmt,
+                    isSold,
+                    sellAmt,
+                    profitDisplay,
+                    balanceAtTime: runningBalance
+                };
+            });
+
+            // 更新畫面上方的總餘額顯示
+            currentBalanceEl.innerText = formatMoney(runningBalance);
+            if(runningBalance < 0) {
+                currentBalanceEl.classList.replace('text-blue-600', 'text-red-600');
+            } else {
+                currentBalanceEl.classList.replace('text-red-600', 'text-blue-600');
+            }
+
+            // 判斷是否顯示空狀態或翻頁控制
+            if (processedTxs.length === 0) {
+                emptyState.classList.remove('hidden');
+                paginationControls.classList.add('hidden');
+                return;
+            } else {
+                emptyState.classList.add('hidden');
+                paginationControls.classList.remove('hidden');
+            }
+
+            // 3. 處理翻頁：將陣列反轉 (讓最新的日期排最上面)，然後切出當前頁面的資料
+            const reversedTxs = [...processedTxs].reverse();
+            const totalPages = Math.ceil(reversedTxs.length / itemsPerPage);
+            
+            // 防呆：確保當前頁碼沒有超出範圍
+            if (currentPage > totalPages) currentPage = totalPages;
+            if (currentPage < 1) currentPage = 1;
+
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const paginatedTxs = reversedTxs.slice(startIndex, startIndex + itemsPerPage);
+
+            // 4. 渲染當前頁面的資料
+            paginatedTxs.forEach((tx) => {
                 const tr = document.createElement('tr');
                 tr.className = "hover:bg-gray-50 transition";
                 tr.innerHTML = `
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${tx.date}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${tx.name}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">${formatMoney(buyAmt)}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">${isSold ? formatMoney(sellAmt) : '<span class="text-gray-400 text-xs">持有中</span>'}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right">${profitDisplay}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold ${currentBalance < 0 ? 'text-red-600' : 'text-blue-600'}">${formatMoney(currentBalance)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">${formatMoney(tx.buyAmt)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">${tx.isSold ? formatMoney(tx.sellAmt) : '<span class="text-gray-400 text-xs">持有中</span>'}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right">${tx.profitDisplay}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold ${tx.balanceAtTime < 0 ? 'text-red-600' : 'text-blue-600'}">${formatMoney(tx.balanceAtTime)}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-center">
                         <button onclick="editTx('${tx.id}')" class="text-indigo-600 hover:text-indigo-900 mr-3">編輯</button>
                         <button onclick="deleteTx('${tx.id}')" class="text-red-600 hover:text-red-900">刪除</button>
@@ -169,13 +222,16 @@
                 tbody.appendChild(tr);
             });
 
-            // 更新總餘額顯示
-            currentBalanceEl.innerText = formatMoney(currentBalance);
-            if(currentBalance < 0) {
-                currentBalanceEl.classList.replace('text-blue-600', 'text-red-600');
-            } else {
-                currentBalanceEl.classList.replace('text-red-600', 'text-blue-600');
-            }
+            // 5. 更新翻頁按鈕與文字狀態
+            pageInfo.innerText = `顯示第 ${currentPage} 頁，共 ${totalPages} 頁 (總計 ${transactions.length} 筆)`;
+            btnPrev.disabled = currentPage === 1;
+            btnNext.disabled = currentPage === totalPages;
+        }
+
+        // 翻頁動作
+        window.changePage = function(offset) {
+            currentPage += offset;
+            renderTable();
         }
 
         // 儲存資料到 LocalStorage
@@ -212,6 +268,8 @@
                 transactions.push(newTx);
             }
 
+            // 新增資料後，把頁碼切回第一頁看最新結果
+            currentPage = 1;
             saveData();
             resetForm();
         });
